@@ -6,12 +6,10 @@ I have included this in my GSoC proposal for 'ceph-mgr: Smarter reweight-by-util
 I will demonstrate the idea with an example.
 
 1. Consider we've 5 OSDs with weights, having weights [10,10,10,10,1].
-   PS : We keep the assigned weights as it is, and make a copy of it, which will be the actual weights
-   we will be working with, and we use the normalised version of it.
-   So, we maintain target_weight_distribution as [(10/41),(10/41),(10/41),(10/41),(1/41)], until the weights are changed.
+   PS : We keep the assigned weights as it is, and make a copy of it, which will be the actual weights we will be working with, and we use the normalised version of it. So, we maintain target_weight_distribution as [(10/41),(10/41),(10/41),(10/41),(1/41)], until the weights are changed.
 
 2. At each 'step' or 'draw' we maintain:
-  
+
    We need to keep the assigned weight so as to know what distribution we need to have, at all times.
    a) current_load_distribution, which is [0,0,0,0,0] initially.
    b) current_error in load distribution, which is [(10/41),(10/41),(10/41),(10/41),(1/41)] initially
@@ -19,8 +17,7 @@ I will demonstrate the idea with an example.
    d) integral_error in load distribution, which is [0,0,0,0,0] initially.
    e) current_weight_distribution, which is [(10/41),(10/41),(10/41),(10/41),(1/41)] initially
 
-3. We have certain constants (which I shall explain later, how to determine), named Kp, Ki and Kd which
-   will be the coefficients of current_error, integral_error and derivative_error, in the expression:
+3. We have certain constants (which I shall explain later, how to determine), named Kp, Ki and Kd which will be the coefficients of current_error, integral_error and derivative_error, in the expression:
 
    total_error=(Kp*current_error)+(Ki*integral_error)+(Kd*derivative_error)
 
@@ -34,8 +31,7 @@ I will demonstrate the idea with an example.
 
    previous_error = current_error
 
-   Now, since, imbalance for an OSD with greater weight is more significant than the one with lower weight, we need to
-   scale them to their target_weight_distribution.
+   Now, since, imbalance for an OSD with greater weight is more significant than the one with lower weight, we need to scale them to their target_weight_distribution.
 
    So, total_error = (total_error).(target_weight_distribution)
        		   // This is simply multiplying the transpose of the vector target_weight_distribution with total_error.
@@ -47,13 +43,13 @@ I will demonstrate the idea with an example.
 
 As an example:
    Let us assume, that the PID_Tuner function (explained below), returned
-   Kp=0.08, Ki=0.01, and Kd=0.01 
+   Kp=0.08, Ki=0.01, and Kd=0.01
 
    I will be henceforth, using normalised weights.
 
    Initially, target_weight_distribution : [0.2439, 0.2439, 0.2439, 0.2439, 0.0244]
    At the first draw :
-   
+
    Probability of choosing OSD 'a' = 0.2439
    After choosing 'a' :
    current_load_distribuion : [1,0,0,0,0]
@@ -71,7 +67,7 @@ As an example:
    			       =  [0.2255, 0.2498, 0.2498, 0.2498, 0.0250]
 			       =  [0.2255, 0.2498, 0.2498, 0.2498, 0.0250] // After normalisation
 
-   
+
    Probability of choosing OSD 'e' = 0.0244
    After choosing 'e' :
    current_load_distribuion : [0,0,0,0,1]
@@ -90,7 +86,7 @@ As an example:
 			       =  [0.2498, 0.2498, 0.2498, 0.2498, 0.0221] // After normalisation
 
   Now, let us calculate the probablility of
-  getting OSD 'e' = (0.0244) + (0.0236) = 0.0480 
+  getting OSD 'e' = (0.0244) + (0.0236) = 0.0480
   getting OSD 'a' = (0.2439) + (0.2360) + 0.0006 = 0.4805
 
   We see that the expected ratio is maintained. I can also show for higher degrees of num_rep.
@@ -99,17 +95,14 @@ As an example:
 Now why I vouch for this solution :
     1. This is dynamic. Dynamic in the sense that, it takes into account, the decisions the CRUSH has made in the past and prevent certain selections in the future.
 
-       So, if the lower weighted device hasn't been selected for a long time, the integral_error for that device
-       will keep on increasing, and it will increase the chances of it getting selected in the subsequent trials.
+       So, if the lower weighted device hasn't been selected for a long time, the integral_error for that device will keep on increasing, and it will increase the chances of it getting selected in the subsequent trials.
 
        Similarly, if the lower weighted device is once selected, it's weight is significantly reduced, till sufficient turns.
        This ensures that highly improbable situations where distribution is skewed to lower weighted devices.
-      
+
     2. We can convert the normalised distribution, back to integer weights (with some negligible error) and vice-versa.
 
-    3. All calculations are simple. Though, the distribution of objects in OSDs can be viewed as a Gaussian distribution,
-       with mean proportional to the weight of the device, and standard deviation proportional to the error in distribution
-       that can be allowed for, but the calculations in that case would be very heavy and time consuming.
+    3. All calculations are simple. Though, the distribution of objects in OSDs can be viewed as a Gaussian distribution, with mean proportional to the weight of the device, and standard deviation proportional to the error in distribution that can be allowed for, but the calculations in that case would be very heavy and time consuming.
 
     4. Though it has been explained for OSDs in buckets, this can be similarly and recursively applied to tree buckets.
        I am not sure, as how to apply for Straw buckets though.
@@ -117,7 +110,7 @@ Now why I vouch for this solution :
     5. It can account for any sudden change in the distribution.
        For example, if a device is down, the change in the object distribution can occur without any rebalance algorithm.
        Though, to attain the desired distribution, we might have to wait some turns. This might not be such a great feature of this.
-       
+
 
 Motivation :
 
@@ -133,16 +126,15 @@ How to find the values of Kp, Ki and Kd :
 
 Though we can manually find the values of these, but for a large system, it is very tiresome.
 
-There are existing PID_tuners (can be write one from the scratch too, I have included this in the proposal too), that need us to define a cost function,
-that we need to minimise. In this case, it would be current_error,i.e. error in load distribution.
+There are existing PID_tuners (can be write one from the scratch too, I have included this in the proposal too), that need us to define a cost function, that we need to minimise. In this case, it would be current_error,i.e. error in load distribution.
 They use PID tuning algorithms, based on Machine Learning concepts (more specifically, gradient descent).
 We need to provide data (controls: current_weight_distribution, iteration_number output: current_load_distribution) and the model would train upon it.
 
-A simple PID_Tuner was developed by my friend, for the Swarm Project, an autonomous, distributed robotics project. Though he has used Matlab for the same,
-converting to C++ shall not be much pain. Here[1] is a link for it.
+A simple PID_Tuner was developed by my friend, for the Swarm Project, an autonomous, distributed robotics project.
+Though he has used Matlab for the same, converting to C++ shall not be much pain. Here[1] is a link for it.
 
 References :
-[1] : https://github.com/ash-anand/learnPID
+[1] : https://github.com/ManashRaja/learnPID
 
 
 P.S. : I have also proposed in my GSoC proposal to design/give a detailed mathematical proof of it, for the sake of records and justification.
