@@ -1,6 +1,6 @@
 Hi everyone
 
-Here is a simpler algorithm that you can look into. This is based on a PID-based feedback mechanism.
+Here is a simpler algorithm that you can look into. This is based on a PID-based feedback mechanism. [4]
 I have included this in my GSoC proposal for 'ceph-mgr: Smarter reweight-by-utilisation'.
 
 I will demonstrate the idea with an example.
@@ -91,12 +91,34 @@ As an example:
 
   We see that the expected ratio is maintained. I can also show for higher degrees of num_rep.
 
+Significance of each term :
+a) current_error :
+  This is the prime reason, we need to change the weight distribution, i.e. with the current_weight_distribution, we can't achieve the target_load_distribution.
+b) integral_error :
+  This is to ensure, if a device hasn't been chosen for a long time, this factor will increase the probability that it should have higher chances of getting selected in the subsequent turns.
+  It is accounting for the differences in load distributions in the past.
+c) derivative_error :
+  This reduces the probability of the same device getting selected in successive fashion, more frequently than it should be.
+  It is accounting for the possible differences in load distributions in future.
+
+Reasons why a PID-based feedback system should work :
+This algorithm rests on the principle that the values of Kp, Ki and Kd are dependent only the CRUSH algorithm, and hence are system independent.
+This is explained by
+" Given a single integer input value x, CRUSH will output
+  an ordered list R of n distinct storage targets. CRUSH utilizes
+  a strong multi-input integer hash function whose inputs
+  include x, making the mapping completely deterministic and
+  independently calculable using only the cluster map, placement
+  rules, and x. " [2]
+  -- CRUSH: Controlled, Scalable, Decentralized Placement of Replicated Data by
+  Sage A. Weil, Scott A. Brandt, Ethan L. Miller, Carlos Maltzahn (See Reference)
+The value of Kp, Ki and Kd in a PID depends on the system or in better words, depends on "who takes the actions".
+Since it is the CRUSH algorithm who is responsible for the selection of devices and CRUSH is same for all the systems, therefore it becomes system independent.
+
 
 Now why I vouch for this solution :
     1. This is dynamic. Dynamic in the sense that, it takes into account, the decisions the CRUSH has made in the past and prevent certain selections in the future.
-
        So, if the lower weighted device hasn't been selected for a long time, the integral_error for that device will keep on increasing, and it will increase the chances of it getting selected in the subsequent trials.
-
        Similarly, if the lower weighted device is once selected, it's weight is significantly reduced, till sufficient turns.
        This ensures that highly improbable situations where distribution is skewed to lower weighted devices.
 
@@ -129,12 +151,20 @@ Though we can manually find the values of these, but for a large system, it is v
 There are existing PID_tuners (can be write one from the scratch too, I have included this in the proposal too), that need us to define a cost function, that we need to minimise. In this case, it would be current_error,i.e. error in load distribution.
 They use PID tuning algorithms, based on Machine Learning concepts (more specifically, gradient descent).
 We need to provide data (controls: current_weight_distribution, iteration_number output: current_load_distribution) and the model would train upon it.
-
 A simple PID_Tuner was developed by my friend, for the Swarm Project, an autonomous, distributed robotics project.
 Though he has used Matlab for the same, converting to C++ shall not be much pain. Here[1] is a link for it.
 
+There are also many PID auto tuning algorithms, like Ziegler-Nichols, which can auto-tune the values of Kp, Ki and Kd, as the system works.
+There is however a much simpler implementation. [3]
+Tuning control algorithms is, however, tricky in that there is no one single best solution. You can tune a controller for faster rise time, or less overshoot or various other objectives.
+What we could do initialise the values from the output of a trained/semi-trained system, and use the auto-tune at each step, for best results.
+
+In either case, we would be needing data, and the more the data, the better. For this, I propose to write a test cases generator, that simply iterates and writes over the data on to a file, using the test cluster.
+
 References :
 [1] : https://github.com/ManashRaja/learnPID
-
+[2] : http://www.ssrc.ucsc.edu/papers/weil-sc06.pdf
+[3] : https://github.com/br3ttb/Arduino-PID-AutoTune-Library/tree/master/PID_AutoTune_v0
+[4] : https://en.wikipedia.org/wiki/PID_controller
 
 P.S. : I have also proposed in my GSoC proposal to design/give a detailed mathematical proof of it, for the sake of records and justification.
